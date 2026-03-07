@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { FraudReport } from "./types";
+import { TelethonAuthModal } from "@/app/components/TelethonAuthModal";
 
 type Status = "idle" | "running" | "done" | "error" | "cancelled";
 
@@ -19,6 +20,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+
+  // telethon authentication state
+  const [showTelethonAuth, setShowTelethonAuth] = useState(false);
+  const [authorizedPhone, setAuthorizedPhone] = useState<string | null>(null);
   const progressIdRef = { current: 0 };
   const abortControllerRef = useRef<AbortController | null>(null);
   const runIdRef = useRef<string | null>(null);
@@ -62,6 +67,53 @@ export default function Home() {
     };
 
     try {
+      // try Telethon full-access path if logged in
+      if (authorizedPhone) {
+        addProgress("Attempting Telethon analysis…", "started");
+        try {
+          const telethonRes = await fetch("/api/telethon-analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phone_number: authorizedPhone,
+              channel_identifier: url,
+            }),
+            signal: controller.signal,
+          });
+          if (telethonRes.ok) {
+            const telethonData = await telethonRes.json();
+            if (telethonData.status === "success") {
+              addProgress("Telethon data received", "complete");
+              const report: FraudReport = {
+                channel_metadata: {
+                  channel_name: telethonData.channel_metadata.channel_name,
+                  description: telethonData.channel_metadata.description,
+                  member_count: telethonData.channel_metadata.member_count,
+                  verification_status: telethonData.channel_metadata.verified ? "verified" : "unverified",
+                },
+                message_analysis: {
+                  message_summary: telethonData.message_summary,
+                  message_red_flags: telethonData.red_flags,
+                },
+                outbound_links: [],
+                admin_cross_check: {
+                  admin_visible: false,
+                  admin_username_or_name: null,
+                },
+                wallet_addresses: [],
+                fraud_risk_score: telethonData.fraud_risk_score,
+                conclusion: telethonData.conclusion as any,
+              };
+              setReport(report);
+              setStatus("done");
+              return;
+            }
+          }
+        } catch (e) {
+          addProgress("Telethon failed, falling back", "progress");
+        }
+      }
+
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,7 +194,7 @@ export default function Home() {
     } finally {
       abortControllerRef.current = null;
     }
-  }, [channelUrl]);
+  }, [channelUrl, authorizedPhone]);
 
   const conclusionLabel = (c?: string) => {
     switch (c) {
@@ -173,24 +225,38 @@ export default function Home() {
     <div className="flex-1 flex flex-col items-center px-4 py-8 md:py-12">
       <div className="w-full max-w-6xl flex-1 flex flex-col">
         <header className="text-center mb-8 md:mb-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/5 px-4 py-1.5 mb-4 opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:100ms]">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+          <div className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-gradient-to-r from-accent/10 to-secondary/10 px-4 py-2 mb-6 opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:100ms] backdrop-blur-sm">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-gradient-to-r from-accent to-accent-glow" />
             </span>
-            <span className="text-xs font-medium text-accent uppercase tracking-wider">TinyFish powered</span>
+            <span className="text-xs font-semibold text-transparent bg-clip-text bg-gradient-to-r from-accent to-secondary uppercase tracking-widest">🛡️ TinyFish Powered</span>
           </div>
-          <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-white drop-shadow-sm opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:200ms]">
-            <span className="bg-gradient-to-r from-white via-zinc-200 to-accent bg-clip-text text-transparent">Telegram Fraud</span>
+          <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white drop-shadow-lg opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:200ms] leading-tight">
+            <span className="text-gradient">Telegram Fraud</span>
             <br />
-            <span className="text-accent">Analyzer</span>
+            <span className="inline-block">
+              <span className="bg-gradient-to-r from-pink-400 via-red-500 to-orange-500 bg-clip-text text-transparent animate-pulse">Analyzer</span>
+            </span>
           </h1>
-          <p className="text-zinc-400 mt-4 text-sm md:text-base max-w-lg mx-auto opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:350ms]">
-            Enter a channel link. We’ll check metadata, messages, links, admins, and wallets—with a <span className="text-accent">live view</span> of the analysis.
+          <p className="text-zinc-300 mt-6 text-base md:text-lg max-w-2xl mx-auto opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:300ms] leading-relaxed font-light">
+            Enter a channel link and we'll <span className="font-semibold text-accent">instantly analyze</span> metadata, messages, links, admins, and wallets—with a <span className="font-semibold text-secondary">live browser view</span> of the detection process.
           </p>
-          <p className="text-zinc-500 mt-2 text-xs max-w-md mx-auto opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:450ms]">
-            Many t.me pages show only &quot;Open in Telegram&quot; and no message preview. In those cases the report is based on channel metadata and visible elements only.
+          <p className="text-zinc-500 mt-3 text-xs max-w-md mx-auto opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:400ms]">
+            💡 Many t.me pages show only "Open in Telegram". In those cases, reports are based on available metadata.
           </p>
+
+          {/* Telethon enable button */}
+          <div className="mt-4 opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:450ms]">
+            <button
+              onClick={() => setShowTelethonAuth(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-gradient-to-r from-accent/10 to-secondary/10 px-4 py-2 hover:border-accent/60 transition"
+            >
+              <span className="text-xs font-semibold text-transparent bg-clip-text bg-gradient-to-r from-accent to-secondary uppercase tracking-widest">
+                {authorizedPhone ? "✓ Full Access Enabled" : "🔐 Enable Full Access"}
+              </span>
+            </button>
+          </div>
         </header>
 
         <div className="gradient-border rounded-2xl p-6 md:p-8 mb-8 shadow-xl shadow-black/20 card-hover opacity-0 animate-scale-in [animation-fill-mode:forwards] [animation-delay:550ms]">
@@ -204,15 +270,26 @@ export default function Home() {
               value={channelUrl}
               onChange={(e) => setChannelUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && runAnalysis()}
-              className="flex-1 rounded-xl bg-void border border-border px-4 py-3.5 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition duration-200"
+              className="flex-1 rounded-xl px-4 py-3.5 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition duration-200 disabled:opacity-50"
               disabled={status === "running"}
             />
             <button
               onClick={runAnalysis}
               disabled={status === "running" || !channelUrl.trim()}
-              className="rounded-xl bg-accent hover:bg-accentDim text-void font-semibold px-8 py-3.5 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98]"
+              className="btn-primary rounded-xl font-bold px-8 py-3.5 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-accent/30 hover:shadow-accent/50 relative overflow-hidden group"
             >
-              {status === "running" ? "Analyzing…" : "Analyze"}
+              <span className="relative z-10 flex items-center gap-2 justify-center">
+                {status === "running" ? (
+                  <>
+                    <span className="inline-block h-4 w-4 border-2 border-white border-r-transparent rounded-full animate-spin" />
+                    Analyzing…
+                  </>
+                ) : (
+                  <>
+                    <span>🔍 Analyze</span>
+                  </>
+                )}
+              </span>
             </button>
           </div>
         </div>
@@ -230,7 +307,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={stopAnalysis}
-                    className="rounded-lg border border-danger/60 bg-danger/10 text-danger hover:bg-danger/20 px-3 py-1.5 text-sm font-medium transition flex items-center gap-1.5"
+                    className="rounded-lg border border-danger/60 bg-danger/10 text-danger hover:bg-danger/20 hover:border-danger/80 px-3 py-1.5 text-sm font-semibold transition duration-200 flex items-center gap-1.5 hover:shadow-lg hover:shadow-danger/20"
                   >
                     <svg className="h-4 w-4 shrink-0" fill="currentColor" viewBox="0 0 24 24">
                       <rect x="6" y="6" width="12" height="12" rx="1" />
@@ -483,8 +560,17 @@ export default function Home() {
             </div>
           </div>
         </footer>
+          {/* telethon auth modal */}
+          <TelethonAuthModal
+            isOpen={showTelethonAuth}
+            onClose={() => setShowTelethonAuth(false)}
+            onAuthSuccess={(phone) => {
+              setAuthorizedPhone(phone);
+              setShowTelethonAuth(false);
+            }}
+          />
+        </div>
       </div>
-    </div>
   );
 }
 

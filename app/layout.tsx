@@ -24,6 +24,16 @@ export default function RootLayout({
           <div className="bg-orb bg-orb-1" />
           <div className="bg-orb bg-orb-2" />
           <div className="bg-orb bg-orb-3" />
+          <div className="bg-stars">
+            <div className="star" />
+            <div className="star" />
+            <div className="star" />
+            <div className="star" />
+            <div className="star" />
+            <div className="star" />
+            <div className="star" />
+            <div className="star" />
+          </div>
         </div>
         <div className="bg-grid" aria-hidden />
         <div className="relative z-10 min-h-screen flex flex-col">
