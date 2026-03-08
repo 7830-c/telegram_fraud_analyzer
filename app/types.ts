@@ -41,5 +41,6 @@ export interface FraudReport {
   evidence?: string[];
   fraud_risk_score?: number;
   conclusion?: "legitimate" | "suspicious" | "likely_fraud";
+  limited_data_note?: string;
   [k: string]: unknown;
 }

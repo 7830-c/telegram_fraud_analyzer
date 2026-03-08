@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { FraudReport } from "./types";
-import { TelethonAuthModal } from "@/app/components/TelethonAuthModal";
 
 type Status = "idle" | "running" | "done" | "error" | "cancelled";
 
@@ -21,9 +20,6 @@ export default function Home() {
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
 
-  // telethon authentication state
-  const [showTelethonAuth, setShowTelethonAuth] = useState(false);
-  const [authorizedPhone, setAuthorizedPhone] = useState<string | null>(null);
   const progressIdRef = { current: 0 };
   const abortControllerRef = useRef<AbortController | null>(null);
   const runIdRef = useRef<string | null>(null);
@@ -67,53 +63,6 @@ export default function Home() {
     };
 
     try {
-      // try Telethon full-access path if logged in
-      if (authorizedPhone) {
-        addProgress("Attempting Telethon analysis…", "started");
-        try {
-          const telethonRes = await fetch("/api/telethon-analyze", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              phone_number: authorizedPhone,
-              channel_identifier: url,
-            }),
-            signal: controller.signal,
-          });
-          if (telethonRes.ok) {
-            const telethonData = await telethonRes.json();
-            if (telethonData.status === "success") {
-              addProgress("Telethon data received", "complete");
-              const report: FraudReport = {
-                channel_metadata: {
-                  channel_name: telethonData.channel_metadata.channel_name,
-                  description: telethonData.channel_metadata.description,
-                  member_count: telethonData.channel_metadata.member_count,
-                  verification_status: telethonData.channel_metadata.verified ? "verified" : "unverified",
-                },
-                message_analysis: {
-                  message_summary: telethonData.message_summary,
-                  message_red_flags: telethonData.red_flags,
-                },
-                outbound_links: [],
-                admin_cross_check: {
-                  admin_visible: false,
-                  admin_username_or_name: null,
-                },
-                wallet_addresses: [],
-                fraud_risk_score: telethonData.fraud_risk_score,
-                conclusion: telethonData.conclusion as any,
-              };
-              setReport(report);
-              setStatus("done");
-              return;
-            }
-          }
-        } catch (e) {
-          addProgress("Telethon failed, falling back", "progress");
-        }
-      }
-
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -169,6 +118,10 @@ export default function Home() {
                     result = { raw: result };
                   }
                 }
+                // Add note about limited data if no preview available
+                if (result && !result.channel_metadata?.member_count) {
+                  result.limited_data_note = "Channel preview not available. Analysis based on limited public data.";
+                }
                 setReport(result as FraudReport);
                 addProgress("Analysis complete.", "complete");
                 setStatus("done");
@@ -194,7 +147,7 @@ export default function Home() {
     } finally {
       abortControllerRef.current = null;
     }
-  }, [channelUrl, authorizedPhone]);
+  }, [channelUrl]);
 
   const conclusionLabel = (c?: string) => {
     switch (c) {
@@ -216,8 +169,8 @@ export default function Home() {
 
   const scoreColor = (n?: number) => {
     if (n == null) return "text-muted";
-    if (n <= 30) return "text-accent";
-    if (n <= 60) return "text-warn";
+    if (n >= 70) return "text-accent";
+    if (n >= 40) return "text-warn";
     return "text-danger";
   };
 
@@ -245,18 +198,6 @@ export default function Home() {
           <p className="text-zinc-500 mt-3 text-xs max-w-md mx-auto opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:400ms]">
             💡 Many t.me pages show only "Open in Telegram". In those cases, reports are based on available metadata.
           </p>
-
-          {/* Telethon enable button */}
-          <div className="mt-4 opacity-0 animate-fade-up [animation-fill-mode:forwards] [animation-delay:450ms]">
-            <button
-              onClick={() => setShowTelethonAuth(true)}
-              className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-gradient-to-r from-accent/10 to-secondary/10 px-4 py-2 hover:border-accent/60 transition"
-            >
-              <span className="text-xs font-semibold text-transparent bg-clip-text bg-gradient-to-r from-accent to-secondary uppercase tracking-widest">
-                {authorizedPhone ? "✓ Full Access Enabled" : "🔐 Enable Full Access"}
-              </span>
-            </button>
-          </div>
         </header>
 
         <div className="gradient-border rounded-2xl p-6 md:p-8 mb-8 shadow-xl shadow-black/20 card-hover opacity-0 animate-scale-in [animation-fill-mode:forwards] [animation-delay:550ms]">
@@ -296,7 +237,7 @@ export default function Home() {
 
         {status === "running" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8 animate-fade-in">
-            <div className="lg:col-span-5 gradient-border rounded-2xl p-6 shadow-xl shadow-black/20 card-hover">
+            <div className="lg:col-span-3 gradient-border rounded-2xl p-6 shadow-xl shadow-black/20 card-hover">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
@@ -345,7 +286,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="lg:col-span-7 flex flex-col">
+            <div className="lg:col-span-9 flex flex-col">
               {streamingUrl ? (
                 <div className="live-preview-wrap rounded-2xl overflow-hidden flex-1 flex flex-col min-h-[320px] animate-fade-in">
                   <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 bg-black/30">
@@ -393,6 +334,12 @@ export default function Home() {
 
         {status === "done" && report && (
           <div className="space-y-6 max-w-4xl mx-auto">
+            {report.limited_data_note && (
+              <div className="bg-blue-500/10 border border-blue-500/40 rounded-lg p-4 text-sm text-blue-300">
+                <p className="font-medium mb-1">📊 Limited Data Available</p>
+                <p>{report.limited_data_note}</p>
+              </div>
+            )}
             <div className="gradient-border rounded-2xl p-8 shadow-xl shadow-black/20 card-hover animate-scale-in">
               <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wider mb-3">Verdict</h2>
               <div className="flex flex-wrap items-baseline gap-6">
@@ -560,17 +507,8 @@ export default function Home() {
             </div>
           </div>
         </footer>
-          {/* telethon auth modal */}
-          <TelethonAuthModal
-            isOpen={showTelethonAuth}
-            onClose={() => setShowTelethonAuth(false)}
-            onAuthSuccess={(phone) => {
-              setAuthorizedPhone(phone);
-              setShowTelethonAuth(false);
-            }}
-          />
-        </div>
       </div>
+    </div>
   );
 }
 

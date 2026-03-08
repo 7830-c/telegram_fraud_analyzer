@@ -7,33 +7,57 @@ function buildGoal(channelUrl: string): string {
 
 CHANNEL URL: ${channelUrl}
 
-IMPORTANT – Telegram web behavior:
-Many t.me pages show only "Open in Telegram" or "View in Telegram" and do NOT show message content without signing in. Do NOT get stuck waiting for messages to appear. If the page shows a prompt to open Telegram, or asks to sign in, or you do not see a list of channel messages within a few seconds:
-- Extract ONLY what is visible: channel name, description, subscriber count, profile photo, any visible buttons or links.
-- Set message_analysis.message_summary to: "No message preview available on web (Open in Telegram / sign-in required). Analysis based on channel metadata and visible elements only."
-- Set message_analysis.message_red_flags to [].
-- Then proceed to steps 3–7 below using only the visible metadata and any links on the page. Do not wait or retry for message content.
+Workflow:
 
-Steps:
+1. Open Telegram Web with the given channel URL.
+   - Extract visible metadata: channel_name, description, member_count, verification_status, profile_photo_present, and any visible links.
 
-1. Open the channel page. Extract whatever is visible (even if it's just the "Open in Telegram" screen):
-   - channel_name, description, member_count (or subscriber count if shown), verification_status, profile_photo_present, any_other_metadata.
+2. If a "Preview Channel" button is available:
+   - Click it. If it opens, analyze the last 200 messages:
+     • Check text for red flags (investment promises, fake giveaways, requests for money/keys, impersonation, spam).
+     • Collect and analyze all links in messages.
+     • Mark links safe if they lead to trusted websites with proper HTTPS and valid SSL certificates.
+     • Mark the channel fraudulent if links redirect to suspicious or unsafe sites.
+   - If the preview button does not work and instead prompts to open Telegram or sign in, stop processing messages.
+     • Base findings only on metadata and visible links.
 
-2. Messages (only if you actually see channel messages on the page):
-   - If you see message content: analyze for red flags (urgency, investment promises, requests for funds/keys, fake giveaways, impersonation, spam). Fill message_red_flags and message_summary.
-   - If you do NOT see messages (only "Open in Telegram" or similar): set message_summary to the text above and message_red_flags to []. Do not wait; move on.
+3. Regardless of preview availability, always search the web for any news or articles related to the channel name or metadata.
+   - If scam alerts, fraud warnings, or negative reports are found, mark the channel unsafe.
+   - If coverage is positive or neutral, include that in the evidence.
 
-3. Outbound links: from the current page, collect any clickable links (buttons, "Open in Telegram", or links in visible text). For each real external URL (not t.me or telegram.dog), optionally visit it and set label "safe" | "suspicious" | "phishing" with reason. If no external links are visible, return outbound_links: [].
+4. Admin identity:
+   - If visible, record admin username or name and cross-check across other platforms.
+   - If not visible, set admin_visible: false.
 
-4. Admin: if admin/creator name or username is visible, report in admin_cross_check. Optionally search another platform for that identity. If nothing visible, set admin_visible: false.
+5. Wallet addresses:
+   - Extract only if visible (e.g., 0x..., BTC, Solana).
 
-5. Wallet addresses: only if you see any (e.g. 0x..., Bitcoin, Solana) in visible text. If no messages are visible, wallet_addresses: [].
+6. Evidence:
+   - Compile a list of findings that support the risk score (e.g., "Channel verified", "Outbound links safe", "Scam reports found online").
 
-6. evidence: list of findings that support the score (e.g. "Channel has description and subscriber count", "No message preview available", "No suspicious links visible").
-
-7. fraud_risk_score (0–100) and conclusion ("legitimate" | "suspicious" | "likely_fraud") based only on what you could see. If you had no message access, score should reflect limited data (e.g. lower confidence).
+7. Fraud Risk Score:
+   - Start at 50 baseline.
+   - Add points for positive signals:
+     • +20 verified channel
+     • +15 realistic subscriber count
+     • +15 normal messages
+     • +20 safe outbound links
+     • +10 admin identity confirmed
+     • +10 no scam reports
+   - Subtract points for negative signals:
+     • −30 scam red flags in messages
+     • −25 suspicious/phishing links
+     • −20 hidden/impersonated admin
+     • −20 wallet addresses found
+     • −25 scam reports online
+     • −10 incomplete metadata
+   - Interpret score:
+     • 70–100 = legitimate
+     • 40–69 = suspicious
+     • 0–39 = likely_fraud
 
 Return ONLY a single JSON object (no markdown, no code block):
+
 {
   "channel_metadata": { "channel_name": "", "description": null, "member_count": null, "verification_status": null, "profile_photo_present": false },
   "message_analysis": { "message_red_flags": [], "message_summary": "" },
